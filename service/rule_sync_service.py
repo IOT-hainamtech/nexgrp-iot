@@ -1,4 +1,4 @@
-"""Synchronize one Rule using the shared payload and transport."""
+"""Synchronize Rule configuration through immutable snapshots."""
 
 from urllib.parse import quote
 
@@ -16,6 +16,7 @@ from .device_sync_service import (
     positive_version,
     send_put,
 )
+from .rule_sync_snapshot import RuleSyncSnapshot
 from .sync_transport import load_sync_connection
 
 
@@ -28,6 +29,8 @@ class RuleSyncService:
         )
 
     def build_operation(self, rule_id):
+        """Build the current Rule configuration using the shared builder."""
+
         if not isinstance(rule_id, str) or not rule_id.strip():
             raise ValueError("Rule ID is required")
 
@@ -55,12 +58,36 @@ class RuleSyncService:
 
         return path, payload
 
-    def sync_rule(self, rule_id):
+    def build_snapshot(self, rule_id):
+        """Capture the current configuration before sending it."""
+
         path, payload = self.build_operation(rule_id)
+
+        return RuleSyncSnapshot.capture(
+            local_rule_id=rule_id.strip(),
+            local_org_code=STAGING_ORG,
+            path=path,
+            payload=payload,
+        )
+
+    def sync_rule(self, rule_id):
+        """Preserve the existing entry point for current configuration."""
+
+        snapshot = self.build_snapshot(rule_id)
+        return self.sync_snapshot(snapshot)
+
+    def sync_snapshot(self, snapshot):
+        """Send the captured configuration without rereading the Rule."""
+
+        if not isinstance(snapshot, RuleSyncSnapshot):
+            raise ValueError("A RuleSyncSnapshot is required")
+
+        # Validation occurs before opening an HTTP session.
+        payload = snapshot.to_payload()
 
         connection = load_sync_connection(
             frappe.conf,
-            local_org=STAGING_ORG,
+            local_org=snapshot.local_org_code,
             remote_org=payload["org_code"],
         )
 
@@ -71,7 +98,7 @@ class RuleSyncService:
                 ack = send_put(
                     session,
                     connection.base_url,
-                    path,
+                    snapshot.path,
                     payload,
                     require_applied_version=True,
                 )
@@ -81,7 +108,7 @@ class RuleSyncService:
                 ) from None
 
         return {
-            "rule_id": rule_id.strip(),
+            "rule_id": snapshot.local_rule_id,
             "data_plane_rule_id": payload["rule_id"],
             "status": ack["status"],
             "applied_version": positive_version(
