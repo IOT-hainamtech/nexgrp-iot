@@ -1,6 +1,6 @@
-"""Synchronize one Rule using the shared mapped payload builder."""
+"""Synchronize one Rule using the shared payload and transport."""
 
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import frappe
 import requests
@@ -16,6 +16,7 @@ from .device_sync_service import (
     positive_version,
     send_put,
 )
+from .sync_transport import load_sync_connection
 
 
 class RuleSyncService:
@@ -57,72 +58,36 @@ class RuleSyncService:
     def sync_rule(self, rule_id):
         path, payload = self.build_operation(rule_id)
 
-        base = str(
-            frappe.conf.get("nextwireless_dp_base_url") or ""
-        ).rstrip("/")
-        token = frappe.conf.get(
-            "nextwireless_dp_inbound_token"
+        connection = load_sync_connection(
+            frappe.conf,
+            local_org=STAGING_ORG,
+            remote_org=payload["org_code"],
         )
-        parsed = urlsplit(base)
-
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-            or not isinstance(token, str)
-            or not token.strip()
-            or frappe.conf.get(
-                "nextwireless_dp_org_code"
-            ) != STAGING_ORG
-        ):
-            raise DataPlaneSyncError(
-                "Data Plane site configuration missing or invalid"
-            )
 
         with requests.Session() as session:
-            session.headers.update({
-                "Authorization": f"Bearer {token.strip()}",
-                "X-Org-Code": payload["org_code"],
-                "Accept": "application/json",
-                "ngrok-skip-browser-warning": "true",
-            })
+            session.headers.update(connection.headers())
 
             try:
                 ack = send_put(
                     session,
-                    base,
+                    connection.base_url,
                     path,
                     payload,
+                    require_applied_version=True,
                 )
             except requests.RequestException:
                 raise DataPlaneSyncError(
                     "Data Plane unavailable; Rule sync not confirmed"
                 ) from None
 
-        try:
-            applied_version = positive_version(
-                ack.get("applied_version"),
-                "applied_version",
-            )
-        except ValueError:
-            raise DataPlaneSyncError(
-                "Rule ACK missing applied_version; "
-                "verify Data Plane before retrying"
-            ) from None
-
-        if applied_version != payload["version"]:
-            raise DataPlaneSyncError(
-                "Rule ACK version mismatch"
-            )
-
         return {
             "rule_id": rule_id.strip(),
             "data_plane_rule_id": payload["rule_id"],
             "status": ack["status"],
-            "applied_version": applied_version,
+            "applied_version": positive_version(
+                ack["applied_version"],
+                "applied_version",
+            ),
         }
 
 
