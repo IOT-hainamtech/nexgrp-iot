@@ -10,3 +10,11 @@ from nextgrp.nextgrp_iot.service.rule_sync_service import RuleSyncService
 def sync_rule(rule_id=None):
     require_manager()
     return RuleSyncService().sync_rule(rule_id)
+
+
+@frappe.whitelist(methods=["POST"])
+def replay_job(job_id=None):
+    require_manager()
+    if not isinstance(job_id, str) or not job_id.strip():
+        frappe.throw("job_id is required", frappe.ValidationError)
+    return RuleSyncService().replay_job(job_id.strip())
