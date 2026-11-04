@@ -48,7 +48,7 @@ class DeviceRepository:
         page=1,
         page_size=20,
     ):
-        filters = filters or {}
+        filters = dict(filters or {})
         or_filters = None
 
         if search:
@@ -85,7 +85,19 @@ class DeviceRepository:
 
         device.check_permission("read")
 
-        return {
+        result = {
             field: device.get(field)
             for field in self.DETAIL_FIELDS
         }
+        return result
+
+    def connection_counts(self):
+        # IF-04 updates the stored state; Dashboard reads it without polling Data Plane.
+        devices = frappe.get_list(
+            "Device", fields=["name", "online_state"], page_length=0,
+        )
+        counts = {"total": len(devices), "online": 0, "offline": 0, "unknown": 0}
+        for row in devices:
+            state = str(row.get("online_state") or "unknown").lower()
+            counts[state if state in ("online", "offline") else "unknown"] += 1
+        return counts

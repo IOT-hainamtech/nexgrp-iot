@@ -1,6 +1,8 @@
 
 import frappe
 
+from nextgrp.nextgrp_iot.repository.device_repository import DeviceRepository
+
 
 class DashboardRepository:
 
@@ -8,21 +10,7 @@ class DashboardRepository:
         return {
             "sites": frappe.db.count("Site"),
             "zones": frappe.db.count("Zone"),
-            "devices": {
-                "total": frappe.db.count("Device"),
-                "online": frappe.db.count(
-                    "Device",
-                    {"online_state": "Online"}
-                ),
-                "offline": frappe.db.count(
-                    "Device",
-                    {"online_state": "Offline"}
-                ),
-                "unknown": frappe.db.count(
-                    "Device",
-                    {"online_state": "Unknown"}
-                ),
-            },
+            "devices": DeviceRepository().connection_counts(),
             "alarms": {
                 "total": frappe.db.count("Alarm"),
                 "new": frappe.db.count(
