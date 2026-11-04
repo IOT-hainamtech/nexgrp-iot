@@ -6,6 +6,11 @@ from nextgrp.nextgrp_iot.service.device_data_service import DeviceDataService
 
 
 @frappe.whitelist(methods=["GET"])
+def get_status(device_id=None):
+    return DeviceDataService().get(device_id, "status")
+
+
+@frappe.whitelist(methods=["GET"])
 def get_latest(device_id=None):
     return DeviceDataService().get(device_id, "latest")
 

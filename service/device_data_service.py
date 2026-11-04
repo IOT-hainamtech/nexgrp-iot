@@ -17,7 +17,7 @@ class DataPlaneReadError(frappe.ValidationError):
 
 class DeviceDataService:
     def get(self, device_id, resource, limit=50, offset=0, cursor=None):
-        if resource not in ("latest", "events", "telemetry"):
+        if resource not in ("latest", "events", "telemetry", "status"):
             frappe.throw("Unsupported Device data resource", frappe.ValidationError)
         if not isinstance(device_id, str) or not device_id.strip():
             frappe.throw("device_id is required", frappe.ValidationError)
@@ -65,17 +65,28 @@ class DeviceDataService:
         external_id = mapping.remote_device_id if mapping else (device.device_id or device.name)
         external_org = mapping.remote_org_code if mapping else org
         path = f"/api/v1/devices/{quote(external_id, safe='')}/{resource}"
+        headers = {
+            "Authorization": f"Bearer {token.strip()}",
+            "X-Org-Code": external_org,
+            "Accept": "application/json",
+            "ngrok-skip-browser-warning": "true",
+        }
+        body = self._fetch(base + path, headers, params, external_id, resource)
+        if mapping:
+            try:
+                body = localize_read_response(body, mapping)
+            except ValueError:
+                raise DataPlaneReadError("Data Plane response identity mismatch") from None
+        # Offline/STALE snapshots and historical events remain useful data.
+        return body
+
+    def _fetch(self, url, headers, params, external_id, resource):
         try:
             response = requests.get(
-                base + path,
+                url,
                 params=params,
-                headers={
-                    "Authorization": f"Bearer {token.strip()}",
-                    "X-Org-Code": external_org,
-                    "Accept": "application/json",
-                    "ngrok-skip-browser-warning": "true",
-                },
-                timeout=(5, 15),
+                headers=headers,
+                timeout=(3, 5) if resource == "status" else (5, 15),
                 allow_redirects=False,
             )
         except requests.RequestException:
@@ -89,10 +100,9 @@ class DeviceDataService:
             raise DataPlaneReadError("Data Plane returned invalid JSON") from None
         if not isinstance(body, dict) or body.get("device_id") != external_id:
             raise DataPlaneReadError("Data Plane response Device ID mismatch")
-        if mapping:
-            try:
-                body = localize_read_response(body, mapping)
-            except ValueError:
-                raise DataPlaneReadError("Data Plane response identity mismatch") from None
-        # Offline/STALE snapshots and historical events remain useful data.
+        if resource == "status":
+            state = body.get("current_state")
+            if not isinstance(state, str) or state.strip().lower() not in ("online", "offline", "unknown"):
+                raise DataPlaneReadError("Data Plane status returned invalid current_state")
+            body["current_state"] = state.strip().lower()
         return body
