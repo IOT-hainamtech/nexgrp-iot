@@ -10,6 +10,16 @@ FIELDS = {"Organization": ORG_FIELD, "Site": SITE_FIELD, "Device": DEVICE_FIELD,
 
 
 def validate_mapping(doc, method=None):
+    _validate_mapping(doc)
+    if doc.doctype == "Rule Configuration":
+        from nextgrp.nextgrp_iot.service.rule_sync_service import RuleSyncService
+        try:
+            RuleSyncService().validate_rule_save(doc)
+        except ValueError as exc:
+            frappe.throw(str(exc), frappe.ValidationError)
+
+
+def _validate_mapping(doc):
     field = FIELDS[doc.doctype]
     value = doc.get(field)
     old = doc.get_doc_before_save()
