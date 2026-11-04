@@ -1,6 +1,6 @@
 
 import frappe
-from frappe.realtime import get_doctype_room
+from frappe.realtime import get_doc_room
 
 from nextgrp.nextgrp_iot.repository.status_repository import (
     StatusRepository,
@@ -32,17 +32,20 @@ class StatusService:
             device_id=device_id,
             state=state,
         )
+        docname = frappe.db.get_value("Device", device_id, "name") or result["device_id"]
 
-        if result["changed"]:
-            frappe.publish_realtime(
-                event="nextgrp_iot_device_status",
-                message={
-                    "device_id": result["device_id"],
-                    "online_state": result["online_state"],
-                    "last_seen": result["last_seen"],
-                },
-                room=get_doctype_room("Device"),
-                after_commit=True,
-            )
+        # A newly connected Dashboard may have missed the previous transition.
+        # Relay every accepted status report; `changed` still describes the DB
+        # transition in the ACK, not whether subscribers need this observation.
+        frappe.publish_realtime(
+            event="nextgrp_iot_device_status",
+            message={
+                "device_id": result["device_id"],
+                "online_state": result["online_state"],
+                "last_seen": result["last_seen"],
+            },
+            room=get_doc_room("Device", docname),
+            after_commit=True,
+        )
 
         return result
