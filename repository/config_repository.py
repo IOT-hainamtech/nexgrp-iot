@@ -31,6 +31,7 @@ class ConfigRepository:
         "auto_close",
         "active",
         "version",
+        "custom_data_plane_rule_id",
     ]
 
     def get_document(self, doctype, name):
@@ -51,7 +52,7 @@ class ConfigRepository:
 
         return doc
 
-    def get_active_rules(self):
+    def get_rules(self):
         # get_all bypasses DocType read permissions.
         # Only use it for scoped Data Plane requests.
         if is_data_plane():
@@ -61,7 +62,6 @@ class ConfigRepository:
 
         return query(
             "Rule Configuration",
-            filters={"active": 1},
             fields=self.RULE_FIELDS,
             limit_page_length=1000,
         )

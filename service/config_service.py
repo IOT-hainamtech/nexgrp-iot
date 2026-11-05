@@ -4,6 +4,10 @@ import frappe
 from nextgrp.nextgrp_iot.repository.config_repository import (
     ConfigRepository,
 )
+from nextgrp.nextgrp_iot.service.integration_mapping import (
+    get_device_read_mapping,
+    get_rule_remote_id,
+)
 
 
 DEVICE_FIELDS = (
@@ -70,9 +74,10 @@ class ConfigService:
                     frappe.ValidationError,
                 )
 
+        device_mapping = get_device_read_mapping(device, site.organization)
         rules = []
 
-        for rule in self.repo.get_active_rules():
+        for rule in self.repo.get_rules():
             scope = rule.scope_type
             matched = False
 
@@ -97,17 +102,54 @@ class ConfigService:
             # membership model. Do not match them blindly.
 
             if matched:
-                rules.append(dict(rule))
+                rule_data = dict(rule)
+                rule_data["external_id"] = get_rule_remote_id(rule)
+                rules.append(rule_data)
+
+        device_data = pick(device, DEVICE_FIELDS)
+        profile_data = {
+            **pick(profile, PROFILE_FIELDS),
+            # Device Sync currently uses profile.name as the Data Plane code.
+            "external_id": profile.name,
+        }
+        site_data = pick(site, SITE_FIELDS)
+        device_data["external_id"] = device_mapping.remote_device_id
+        site_data["external_id"] = device_mapping.remote_site_code
 
         return {
-            "device": pick(device, DEVICE_FIELDS),
-            "site": pick(site, SITE_FIELDS),
+            "device": device_data,
+            "site": site_data,
+            "identifiers": {
+                "organization": {
+                    "nextgrp_id": site.organization,
+                    "external_id": device_mapping.remote_org_code,
+                },
+                "site": {
+                    "nextgrp_id": site.name,
+                    "external_id": device_mapping.remote_site_code,
+                },
+                "device": {
+                    "nextgrp_id": device.name,
+                    "external_id": device_mapping.remote_device_id,
+                },
+                "profile": {
+                    "nextgrp_id": profile.name,
+                    "external_id": profile.name,
+                },
+                "rules": [
+                    {
+                        "nextgrp_id": rule.get("name"),
+                        "external_id": rule.get("external_id"),
+                    }
+                    for rule in rules
+                ],
+            },
             "zone": (
                 pick(zone, ZONE_FIELDS)
                 if zone else None
             ),
             "profile": {
-                **pick(profile, PROFILE_FIELDS),
+                **profile_data,
                 "data_points": [
                     pick(row, (
                         "code", "label", "data_type",
