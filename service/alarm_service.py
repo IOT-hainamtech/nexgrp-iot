@@ -172,6 +172,7 @@ class AlarmService:
                 frappe.ValidationError,
             )
 
+        requested_version = None
         if payload.get("rule_version") is not None:
             try:
                 requested_version = int(payload["rule_version"])
@@ -180,10 +181,9 @@ class AlarmService:
                     "Invalid rule_version",
                     frappe.ValidationError,
                 )
-
-            if requested_version != int(rule.version):
+            if requested_version < 1:
                 frappe.throw(
-                    "Rule version mismatch",
+                    "Invalid rule_version",
                     frappe.ValidationError,
                 )
 
@@ -211,11 +211,27 @@ class AlarmService:
                     frappe.ValidationError,
                 )
 
+        # Pin each alarm episode to the version that created it. The version
+        # is stored in the existing Event Inbox result_json, so this does not
+        # require adding fields to the Alarm or Inbox DocTypes.
+        episode_version = (
+            self.inbox.get_episode_rule_version(alarm_key, device.name)
+            if alarm
+            else None
+        )
+        expected_version = episode_version or int(rule.version)
+        if requested_version is not None and requested_version != expected_version:
+            frappe.throw(
+                "Rule version does not match Alarm episode",
+                frappe.ValidationError,
+            )
+        event_rule_version = requested_version or expected_version
+
         changed = False
         duplicate = False
 
         if kind == "occurrence":
-            if not rule.active:
+            if not rule.active and not alarm:
                 frappe.throw(
                     "Rule is inactive",
                     frappe.ValidationError,
@@ -356,6 +372,7 @@ class AlarmService:
             "device_id": device.name,
             "occurrence_count": int(alarm.occurrence_count or 0),
             "cleared_at": str(alarm.cleared_at) if alarm.cleared_at else None,
+            "rule_version": event_rule_version,
             "changed": changed,
             "duplicate": duplicate,
         }

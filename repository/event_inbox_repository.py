@@ -69,6 +69,43 @@ class EventInboxRepository:
 
         return row
 
+    def get_episode_rule_version(self, alarm_key, device_id):
+        """Read the version recorded by the first accepted occurrence.
+
+        Keep episode metadata in the existing inbox result JSON so Rule
+        version changes do not require an Alarm DocType schema migration.
+        Older inbox rows without this value return None.
+        """
+        if is_data_plane():
+            require_device_scope(device_id)
+
+        rows = frappe.db.sql(
+            """
+            SELECT result_json
+            FROM `tabIoT Event Inbox`
+            WHERE alarm_key = %s
+              AND device = %s
+              AND event_kind = 'occurrence'
+            ORDER BY processed_at ASC, creation ASC
+            LIMIT 1
+            """,
+            (alarm_key, device_id),
+            as_dict=True,
+        )
+
+        if not rows:
+            return None
+
+        try:
+            result = json.loads(rows[0].result_json)
+            version = result.get("rule_version")
+            if type(version) is int and version > 0:
+                return version
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+        return None
+
     def save_event(
         self,
         event_id,
