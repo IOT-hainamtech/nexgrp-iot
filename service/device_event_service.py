@@ -83,6 +83,10 @@ class DeviceEventService:
             "metrics": metrics,
             "data_status": data_status,
         }
+        # A wakeup is a hint; AI re-reads authoritative Data Plane history.
+        from nextgrp.nextgrp_iot.service.ml_event_service import schedule_ml_wakeup
+        schedule_ml_wakeup(device, organization, payload)
+
         frappe.publish_realtime(
             event="nextgrp_iot_device_event",
             message=payload,
